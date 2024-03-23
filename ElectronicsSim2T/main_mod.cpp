@@ -209,8 +209,8 @@ int main() {
 			std::istringstream ss(line);
 			for (int i{0}; i < 6; i++) {
 				ss >> tmpi;
+				L2_links[j][i] = int (tmpi);
 			}
-			L2_links[j][i] = int (tmpi);
 			j++;
 		}
 		input.close();
