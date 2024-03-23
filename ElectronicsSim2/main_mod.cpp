@@ -9,11 +9,6 @@
 #include <functional>
 #include <random>
 
-#define PULSE_LENGTH 1000
-#define N_CHAN 109    /// Число каналов    
-#define BIN_2_GEN 512
-
-
 /**
  * @brief Класс для моделирования электроники
  *
@@ -24,11 +19,11 @@
 class ModelElectronics {
 private:
     /* Константы для расчетов. */
-//    const int N_CHAN = 109; /// Число каналов
-//    const int PULSE_LENGTH = 1000;
+    const int N_CHAN = 109; /// Число каналов
+    const int PULSE_LENGTH = 1000;
     const int AMP_SIZE = 10000;
     const int INTERF_LENGTH = 6200;
-//    const int BIN_2_GEN = 1020;
+    const int BIN_2_GEN = 1020;
     const float CURR_2_PH = 3. / 8;
     std::vector<float> pieds; /// Пьедесталы
     std::vector<float> curbase; /// Относительные токи
@@ -54,15 +49,15 @@ public:
 
     void GetSimple(const std::string &, std::vector<float> &);
 	
-	void GetImpulseData();
+	void GetSimpleI(const std::string &, std::vector<int> &);
 
     void GetC();
 
     void GenerateEvent();
 	
-    void AddBackground();
+	void AddBackground();
 	
-    void SubtractMeans();
+	void SubtractMeans();
 
     void SimulateDig();
 
@@ -82,7 +77,7 @@ public:
 ModelElectronics::ModelElectronics() :
         pieds(2*N_CHAN, 0),
         curbase(N_CHAN, 0),
-//        pulse(PULSE_LENGTH, 0),
+        pulse(PULSE_LENGTH, 0),
         amp(AMP_SIZE, 0),
         Toff(N_CHAN, 0),
         interf(INTERF_LENGTH, 0),
@@ -145,29 +140,6 @@ void ModelElectronics::GetSimple(const std::string &fileName, std::vector<float>
     while (ss >> tmp && it != vec.end()) {
         *it = tmp;
         ++it;
-    }
-    input.close();
-}
-
-/**
- * @brief Функция для считывания профиля импульса тока в SiPM
- */
-void ModelElectronics::GetImpulseData() {
-    int i;
-	
-	std::ifstream input("Impulse2GHz.dat");
-    if (!input.is_open()) {
-        std::cerr << "Failed to open the Impulse2GHz.dat file!" << std::endl;
-    }
-    std::string line;
-    std::getline(input, line);
-    std::istringstream ss(line);
-//    auto it{vec.begin()};
-    float tmp;
-	i=0;
-    while (ss >> tmp && i< PULSE_LENGTH) {
-        pulse[i]= float (tmp);
-		i++;        
     }
     input.close();
 }
@@ -293,7 +265,6 @@ void ModelElectronics::PrintDataOut() {
     }
     for (const auto& innerVec : data_out){
         for (const auto& item: innerVec){
-	    if (item < 10)  {outFile << ' ';};
 	    if (item < 100) {outFile << ' ';};
 	    outFile << item << ' ';
         }
@@ -322,10 +293,10 @@ void ThreadManager::inputAll() {
     threads.emplace_back(&ModelElectronics::GetC, &obj);
     threads.emplace_back(&ModelElectronics::GetMoshits, &obj);
     threads.emplace_back(&ModelElectronics::GetSimple, &obj, "CurRels.dat", std::ref(obj.getCurbaseRef()));
-//    threads.emplace_back(&ModelElectronics::GetSimple, &obj, "Impulse2GHz.dat", std::ref(obj.getPulseRef()));
+    threads.emplace_back(&ModelElectronics::GetSimple, &obj, "Impulse2GHz.dat", std::ref(obj.getPulseRef()));
     threads.emplace_back(&ModelElectronics::GetSimple, &obj, "AmpDistrib.dat", std::ref(obj.getAmpRef()));
-    threads.emplace_back(&ModelElectronics::GetSimple, &obj, "pieds.dat", std::ref(obj.getPiedsRef()));
-    threads.emplace_back(&ModelElectronics::GetSimple, &obj, "Toff.dat", std::ref(obj.getToffRef()));
+	threads.emplace_back(&ModelElectronics::GetSimple, &obj, "pieds.dat", std::ref(obj.getPiedsRef()));
+	threads.emplace_back(&ModelElectronics::GetSimple, &obj, "Toff.dat", std::ref(obj.getToffRef()));
     for (auto &t: threads) {
         t.join();
     };
