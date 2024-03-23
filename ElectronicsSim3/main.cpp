@@ -23,12 +23,13 @@ private:
     const int PULSE_LENGTH = 10000;    
     const int BIN_2_GEN = 500;
 	const int TicksPerNs = 10;    /// сколько тиков в наносекунду гененрировать (частота моделирования в ГГц)
-	const int BinLength = 10;     /// Сколько наносекунд в одном бине оцифровки
+	const int BinLength = 12.5;     /// Сколько наносекунд в одном бине оцифровки
     //const float PH_Flux = 1.222;  /// Ожидаемый поток фоновых фотонов в 1 нс ( 0.08 вычислен из потока для СФЕРЫ-2 с учётом площади диафрагмы, угла обзора и квантовой эффективности; по Галкину 1.222)
 	const float TargetAmp = 7;   /// Целевая амплитуда однофотоэлектронного пика 7 ADU (при температуре -15) 
 	const float TargetUover = 5; /// Целевое перенапряжение 5В при температуре -15 градусов
     std::vector<float> curbase; /// Относительные токи
     std::vector<float> pulse; /// Импульсные характеристики тока    
+	std::vector<float> Tpulse; /// Импульсные характеристики тока на вход триггера
 	std::vector<float> params; /// Строка парамтеров состояния детектора
     std::vector<float> Toff; /// Относительные сдвиги каналов            
     int N_PHEL{}; /// Число зарегистрированных фотонов
@@ -37,7 +38,9 @@ private:
 	std::vector<int> PhType; /// Времена прихода фотоэлектронов
     float Tmin{}; /// Минимальное время прихода    
     std::vector<std::vector<int>> data_out; /// Выводной массив
+	std::vector<std::vector<int>> data2_out; /// Выводной массив на триггер
     std::vector<std::vector<float>> data; /// Данные
+	std::vector<std::vector<float>> data2; /// Данные на триггер
 	float U; /// напражение на SiPM
 	float Temp; /// температура SiPM
 	float cross_exp;
@@ -61,10 +64,14 @@ public:
     void SimulateDig();
 
     void PrintDataOut();
+	
+	void PrintData2Out();
 
     std::vector<float> &getCurbaseRef() { return curbase; }
 
     std::vector<float> &getPulseRef() { return pulse; }
+	
+	std::vector<float> &getTrigPulseRef() { return Tpulse; }
 	
 	std::vector<float> &getToffRef() { return Toff; }
 	
@@ -73,11 +80,14 @@ public:
 
 ModelElectronics::ModelElectronics() :        
         curbase(N_CHAN, 0),
-        pulse(PULSE_LENGTH, 0),         
-        Toff(N_CHAN, 0),
+        pulse(PULSE_LENGTH, 0),
+		Tpulse(PULSE_LENGTH, 0),
 		params(4,0),
+		Toff(N_CHAN, 0),
         data_out(N_CHAN, std::vector<int>(BIN_2_GEN, 0)),
-        data(N_CHAN, std::vector<float>(BIN_2_GEN * TicksPerNs * BinLength + 2 * PULSE_LENGTH + 2, 0)) {}
+		data2_out(N_CHAN, std::vector<int>(BIN_2_GEN, 0)),
+        data(N_CHAN, std::vector<float>(int(BIN_2_GEN * TicksPerNs * BinLength) + 2 * PULSE_LENGTH + 2, 0)),
+		data2(N_CHAN, std::vector<float>(int(BIN_2_GEN * TicksPerNs * BinLength) + 2 * PULSE_LENGTH + 2, 0)) {}
 /**
  * @brief Функция для считывания файла moshits
  */
@@ -216,10 +226,12 @@ void ModelElectronics::GenerateEvent() {
 			N += (dist(gen) - 1);
 			amp_ph += 1;			
 		}
+		
         amp_ph += subamp(gen);		
-        T_ph = int(TicksPerNs * (T[phid] - Tmin) + floor(0.45 * BIN_2_GEN * TicksPerNs * BinLength + PULSE_LENGTH));
+        T_ph = int(TicksPerNs * (T[phid] - Tmin) + floor(0.45 * BIN_2_GEN * TicksPerNs * BinLength + PULSE_LENGTH));		
         for (int t{0}; t < PULSE_LENGTH; t++) {
             data[PMTid[phid]][t + T_ph] += CurAmp * amp_ph * pulse[t];
+			data2[PMTid[phid]][t + T_ph] += CurAmp * amp_ph * Tpulse[t];
         }
     }
 }
@@ -228,7 +240,7 @@ void ModelElectronics::GenerateEvent() {
  * @brief Добавление фона
  */
 void ModelElectronics::AddBackground() {
-    int BG_LENGTH{ (BIN_2_GEN + 1) * TicksPerNs * BinLength + PULSE_LENGTH};
+    int BG_LENGTH{ int((BIN_2_GEN + 1) * TicksPerNs * BinLength) + PULSE_LENGTH};
     float N_AVG;
     float N_PHEL_exp;
     float amp_ph;
@@ -259,6 +271,7 @@ void ModelElectronics::AddBackground() {
             T_ph = dist_bg(gen);
             for (int t{0}; t < PULSE_LENGTH; t++) {
                 data[j][t + T_ph] += CurAmp * amp_ph * pulse[t];
+				data2[j][t + T_ph] += CurAmp * amp_ph * Tpulse[t];
             }
         }
     }
@@ -276,13 +289,14 @@ void ModelElectronics::SimulateDig() {
         t_shift = dist_shift(gen);     
         for (int i{0}; i < BIN_2_GEN; i++) {
             data_out[j][i] = int(data[j][PULSE_LENGTH + t_shift + int (i + Toff[j]) * TicksPerNs * BinLength ]);
+			data2_out[j][i] = int(data2[j][PULSE_LENGTH + t_shift + int (i + Toff[j]) * TicksPerNs * BinLength ]);
         }
     }
 
 }
 
 /**
- * @brief Метод для печати выводного файла
+ * @brief Метод для печати выводного файла данных
  */
 void ModelElectronics::PrintDataOut() {
     std::ofstream outFile("data_out");
@@ -290,6 +304,23 @@ void ModelElectronics::PrintDataOut() {
         std::cerr << "Open file error." << std::endl;
     }
     for (const auto& innerVec : data_out){
+        for (const auto& item: innerVec){
+            outFile << item << ' ';
+        }
+        outFile << std::endl;
+    }
+    outFile.close();
+}
+
+/**
+ * @brief Метод для печати выводного файла триггерного потока
+ */
+void ModelElectronics::PrintData2Out() {
+    std::ofstream outFile("data2_out");
+    if (!outFile.is_open()) {
+        std::cerr << "Open file error." << std::endl;
+    }
+    for (const auto& innerVec : data2_out){
         for (const auto& item: innerVec){
             outFile << item << ' ';
         }
@@ -318,7 +349,8 @@ void ThreadManager::inputAll() {
 //    threads.emplace_back(&ModelElectronics::GetC, &obj);
     threads.emplace_back(&ModelElectronics::GetMoshits, &obj);
     threads.emplace_back(&ModelElectronics::GetSimple, &obj, "CurRels.dat", std::ref(obj.getCurbaseRef()));
-    threads.emplace_back(&ModelElectronics::GetSimple, &obj, "Impulse10GHz.dat", std::ref(obj.getPulseRef()));
+    threads.emplace_back(&ModelElectronics::GetSimple, &obj, "Impulses10GHz.dat", std::ref(obj.getPulseRef()));
+	threads.emplace_back(&ModelElectronics::GetSimple, &obj, "Impulsef10GHz.dat", std::ref(obj.getTrigPulseRef()));
 	threads.emplace_back(&ModelElectronics::GetSimple, &obj, "Toff.dat", std::ref(obj.getToffRef()));
 	threads.emplace_back(&ModelElectronics::GetSimple, &obj, "Params.dat", std::ref(obj.getParamsRef()));
     for (auto &t: threads) {
@@ -330,11 +362,12 @@ void ThreadManager::inputAll() {
 int main() {
     ModelElectronics model;	
     ThreadManager manager(model);;
-    manager.inputAll();
+    manager.inputAll();	
 	model.SetUpDetector();
-    model.GenerateEvent();
-    model.AddBackground();	
-    model.SimulateDig();
+    model.GenerateEvent();	
+    model.AddBackground();		
+    model.SimulateDig();	
     model.PrintDataOut();
+	model.PrintData2Out();
     return 0;
 }
